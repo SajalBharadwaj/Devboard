@@ -1,66 +1,54 @@
-# DevBoard — Advanced (UI + Go + Postgres)
+# 📊 DevBoard — Advanced (UI + Go + Postgres)
 
-This is the same DevBoard UI as the `master` branch, but now the data comes
-from a **real backend** instead of fake in-memory data.
-
-Three pieces talk to each other:
-
-```
-browser  →  frontend (React)  →  backend (Go API)  →  database (Postgres)
-```
-
-- **frontend** — the React app. It also forwards anything starting with `/api`
-  to the backend.
-- **backend** — a small Go program that reads and writes the database.
-- **database** — Postgres, with some example projects and tasks loaded on first
-  start.
-
-There's no login and no AI here on purpose. The whole point is to *see how the
-pieces connect*.
+🚀 **DevBoard** is a fully containerized, production-ready full-stack developer dashboard application. This project serves as an architectural blueprint demonstrating how a modern **React (Vite)** frontend, a high-performance **Go API** backend, and a **PostgreSQL** relational database seamlessly interconnect and communicate via a dedicated Docker network layer.
 
 ---
 
-## What you need
+## 🏗️ System Architecture & Data Flow
 
-- **Docker** (with Docker Compose, which comes with Docker Desktop).
-- That's it. You do **not** need Node, Go, or Postgres installed — they all run
-  inside containers.
+Every component is modularized and operates in isolation, orchestrating data traffic through structured port forwards and proxies:
+
+```text
+ 🌐 Browser ──[Port 8080]──> ⚛️ Frontend (React/Vite)
+                                   │
+                           (Proxies /api requests)
+                                   ▼
+ 🚀 Backend (Go API) ──[Internal Network]──> 🐘 Database (Postgres)
+```
+
+1. **Frontend:** A optimized React application that serves the user interface and proxies all inbound traffic prefixed with `/api` directly to the backend layer.
+2. **Backend:** A lightweight, high-concurrency Go application responsible for evaluating business logic and executing database CRUD queries.
+3. **Database:** An official PostgreSQL container configured to automatically seed relational tables with mock schema and initial datasets upon cold start.
+
+📌 *Note: Authentication mechanisms and AI components are omitted on purpose to isolate and highlight multi-container microservice networking.*
 
 ---
 
-## Part 1 — The manual way (do it by hand to understand it)
+## 🛠️ Prerequisites
 
-Run all commands from this folder. We'll start the three pieces one by one, the
-hard way, so you can see exactly what Docker Compose does for you later.
+You do not need **Node.js, Go, or Postgres** installed on your host OS. Everything executes natively inside standard isolated environments. The only requirement is:
+* **Docker** & **Docker Compose** (or Docker Desktop)
 
-### Step 1: Create a network
+---
 
-Containers can only find each other by name if they're on the **same network**.
-So first we make one:
+## 🧑‍💻 Part 1 — The Manual Routing Configuration (Deep Dive)
 
+To understand container discovery and overlay networks, execute these commands step-by-step from your root `~/devboard` directory:
+
+### Step 1: Initialize the Isolated Docker Network
+Containers can only discover each other dynamically via service names if they are bound to the same software-defined network:
 ```bash
 docker network create devboard-net
 ```
 
-### Step 2: Build the images
-
-The frontend and backend are *our* code, so we build an image for each. The
-database is not our code — it's the official Postgres image — so there's
-nothing to build for it.
-
+### Step 2: Compile Local Images
 ```bash
 docker build -t devboard-frontend ./frontend
 docker build -t devboard-backend ./backend
 ```
 
-The first build downloads base images and compiles the code, so it can take a
-few minutes. Later builds are much faster.
-
-### Step 3: Run the database
-
-We name it `postgres`. The backend will look for it by that exact name. The
-`-v ./init/postgres:...` line loads the example data the first time it starts.
-
+### Step 3: Launch the Database Layer
+We explicit name this container `postgres` so the application can resolve its address over DNS. The host volume mount mounts data migrations instantly on initialization:
 ```bash
 docker run -d --name postgres --network devboard-net \
   -e POSTGRES_USER=devboard \
@@ -71,11 +59,7 @@ docker run -d --name postgres --network devboard-net \
   postgres:16-alpine
 ```
 
-### Step 4: Run the backend
-
-We name it `backend` (the frontend looks for this name). We also tell it how to
-reach the database with `POSTGRES_URL` — notice it uses the name `postgres`.
-
+### Step 4: Launch the API Backend Engine
 ```bash
 docker run -d --name backend --network devboard-net \
   -e PORT=8080 \
@@ -84,143 +68,86 @@ docker run -d --name backend --network devboard-net \
   devboard-backend
 ```
 
-### Step 5: Run the frontend
-
-It serves the app on port 4173 inside the container; we map it to 8080 on your
-machine.
-
+### Step 5: Launch the UI Frontend Wrapper
+The app listens on port `4173` inside the virtual ecosystem, which we expose out to host port `8080`:
 ```bash
 docker run -d --name frontend --network devboard-net \
   -p 8080:4173 \
   devboard-frontend
 ```
 
-### Step 6: Open it and check
+### Step 6: Verify Network Topology
+* **Frontend Dashboard UI:** Navigate to [http://localhost:8080](http://localhost:8080)
+* **API Gateway Verification:** Execute `curl http://localhost:8081/health` (Expects HTTP 200 OK)
 
-Open **http://localhost:8080** in your browser — you should see the DevBoard
-dashboard with some example tasks. (If the page shows an error for a second on
-first load, the backend is still starting up — just refresh.)
-
-Then check the wiring from the terminal:
-
-```bash
-curl http://localhost:8081/health                      # backend says OK
-curl "http://localhost:8080/api/tasks?project_id=1"    # app → backend → database
-```
-
-### Step 7: Stop and clean up
-
+### Step 7: Teardown Infrastructure
 ```bash
 docker rm -f frontend backend postgres
 docker network rm devboard-net
 ```
 
-### The one thing to remember: names
+---
 
-The backend finds the database using the name `postgres` (see `POSTGRES_URL`).
-The frontend finds the backend using the name `backend` (see
-`frontend/vite.config.js`). So those container **names must match**, and they
-only work because everything is on the same `devboard-net` network.
+## ⚡ Part 2 — Automated Orchestration: Docker Compose
 
-That's a lot of typing, and you have to start them in the right order. This is
-exactly the problem Docker Compose solves.
+Docker Compose streamlines production deployment by managing network graphs, target environment injections, and dependency boot order from a declarative `docker-compose.yml` manifest.
+
+1. **Generate Environment Config (One-Time Task):**
+   ```bash
+   cp .env.example .env
+   ```
+2. **Bring the Full Infrastructure Up In Background (Detached):**
+   ```bash
+   docker compose up -d --build
+   ```
+3. **Graceful Stack Teardown:**
+   ```bash
+   docker compose down
+   ```
 
 ---
 
-## Part 2 — The easy way: Docker Compose
+## 🚀 Part 3 — Pipeline Shortcuts via Makefile
 
-Compose does everything from Part 1 — the network, the names, the order, the
-environment values — from one file (`docker-compose.yml`).
+For environments supporting GNU Automation utilities, standard operations are aliased into clean, atomic scripts:
 
-First, create your settings file (one time only). Compose reads it to fill in
-passwords and ports, so the stack won't start without it:
-
-```bash
-cp .env.example .env
-```
-
-Then start everything with one command:
-
-```bash
-docker compose up --build
-```
-
-The first build can take a few minutes. When it's done, open
-**http://localhost:8080** in your browser.
-
-Stop it:
-
-```bash
-docker compose down
-```
-
-| Piece    | Open in browser / curl        | Notes                                   |
-| -------- | ----------------------------- | --------------------------------------- |
-| Frontend | http://localhost:8080         | the app; forwards `/api` to the backend |
-| Backend  | http://localhost:8081/health  | the Go API (the app uses it via `/api`) |
-| Postgres | localhost:5432                | user / password: `devboard` / `devboard`|
+| Command | Operational Objective |
+| :--- | :--- |
+| `make` | Audits and prints all available project macros |
+| `make setup` | Instantiates environment variables using target templates |
+| `make up` | Automatically runs builds and initializes active components |
+| `make down` | Terminates infrastructure and unbinds associated networks |
+| `make logs` | Establishes a standard I/O stream tailing real-time errors |
+| `make reset` | Purges persistent volumes and forces a data reset |
+| `make smoke` | Executes health check assertions to verify stack status |
 
 ---
 
-## Part 3 — The shortcut: `make`
+## 🔌 API Reference Map
 
-You don't even have to remember the Compose commands. Run `make` to see what's
-available:
+The browser proxies requests through `/api/...`; the underlying Go runtime captures and processes them at root paths:
 
-```bash
-make           # list all commands
-make setup     # create your .env file (first time only)
-make up        # build and start everything
-make down      # stop everything
-make logs      # watch the logs
-make reset     # wipe the database and start fresh
-make smoke     # quick check that everything works
-```
-
-`make up` creates `.env` for you automatically, so it's the simplest way to start.
-
-> `make` is optional. It's already available on Linux and macOS (on macOS you may
-> need Xcode Command Line Tools: `xcode-select --install`). On Windows, either use
-> WSL or just run the `docker compose` commands from Part 2 directly.
+| Method | Endpoint Path | Functionality Target |
+| :--- | :--- | :--- |
+| **GET** | `/projects` | Fetches collection of current active projects |
+| **POST** | `/projects` | Appends a new project structure to storage |
+| **GET** | `/tasks?project_id=N` | Extracts specific array of tasks belonging to Project N |
+| **POST** | `/tasks` | Commits a new task instance |
+| **PATCH**| `/tasks/:id` | Modifies properties (e.g., status flags) of targeted task |
+| **GET** | `/search?q=&project_id=N`| Executes query search filtering tasks by keywords |
+| **GET** | `/health` | Heartbeat endpoint validating backend viability |
 
 ---
 
-## Settings live in `.env`
+## 📁 Repository Layout Strategy
 
-All the changeable values (passwords, ports) live in one file. The first time,
-copy the example:
-
-```bash
-cp .env.example .env     # or: make setup
-```
-
-`.env.example` is the template kept in git. Your real `.env` is ignored by git,
-so in a real project your secrets never get committed.
-
----
-
-## The API (for reference)
-
-The browser calls these as `/api/...`; the backend serves them at the root.
-
-| Method | Path                      | What it does                          |
-| ------ | ------------------------- | ------------------------------------- |
-| GET    | `/projects`               | list projects                         |
-| POST   | `/projects`               | create a project                      |
-| GET    | `/tasks?project_id=N`     | list tasks in a project               |
-| POST   | `/tasks`                  | create a task                         |
-| PATCH  | `/tasks/:id`              | update a task (e.g. change status)    |
-| GET    | `/search?q=&project_id=N` | search tasks by title                 |
-| GET    | `/health`                 | health check                          |
-
-## Folder layout
-
-```
+```text
 .
-├── docker-compose.yml   starts frontend + backend + postgres together
-├── Makefile             short commands (make up, make down, ...)
-├── .env.example         template for settings (copy to .env)
-├── frontend/            React app (Vite). Serves the UI, forwards /api
-├── backend/             Go API (main.go + Dockerfile)
-└── init/postgres/       schema + example data, loaded on first start
+├── docker-compose.yml   # Multi-container declaration mapping frontend, backend & postgres
+├── Makefile             # Macro orchestrator (make up, make down, make reset)
+├── .env.example         # Target properties blueprint tracked by Version Control
+├── .env                 # Active localized configuration containing secrets (Git-ignored)
+├── frontend/            # React + Vite application directory (Container Port: 4173)
+├── backend/             # Compiled Golang source runtime along with its Dockerfile
+└── init/postgres/       # Pre-built database migrations and initialization data seeds
 ```
